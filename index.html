@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iLAW — المستشار القانوني الذكي</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Noto Naskh Arabic', Georgia, serif; background: #0d1f2d; color: #c8dce8; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0d1f2d; }
+    ::-webkit-scrollbar-thumb { background: #2589C9; border-radius: 3px; }
+    textarea::placeholder { color: #3d5e73; }
+    @keyframes spin  { to { transform: rotate(360deg); } }
+    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    @keyframes pulse { 0%,100% { opacity:.3; transform:scale(.8); } 50% { opacity:1; transform:scale(1.2); } }
+    @keyframes slideUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+    const { createClient } = supabase;
+
+    // ── Supabase ─────────────────────────────────────────────
+    const SUPABASE_URL = "https://gheyozhgbwlmenypifom.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_eMCRrI9LHFKw5uF7ju-uFg_yuDOzG8E";
+    const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    });
+
+    // ── useAuth ───────────────────────────────────────────────
+    function useAuth() {
+      const [user, setUser] = useState(null);
+      const [authLoading, setAuthLoading] = useState(true);
+
+      useEffect(() => {
+        sb.auth.getSession().then(({ data: { session } }) => {
+          setUser(session?.user ?? null);
+          setAuthLoading(false);
+        });
+        const { data: { subscription } } = sb.auth.onAuthStateChange((_e, session) => {
+          setUser(session?.user ?? null);
+          setAuthLoading(false);
+        });
+        return () => subscription.unsubscribe();
+      }, []);
+
+      const signUp = useCallback(async (email, password) => {
+        try {
+          const { data, error } = await sb.auth.signUp({ email, password });
+          if (error) return { success: false, error: error.message };
+          if (data.user) {
+            await sb.from("users").upsert(
+              { id: data.user.id, email: data.user.email, usage_count: 0, last_reset: new Date().toISOString() },
+              { onConflict: "id", ignoreDuplicates: true }
+            );
+          }
+          return { success: true };
+        } catch (e) { return { success: false, error: e.message }; }
+      }, []);
+
+      const signIn = useCallback(async (email, password) => {
+        try {
+          const { error } = await sb.auth.signInWithPassword({ email, password });
+          if (error) return { success: false, error: error.message };
+          return { success: true };
+        } catch (e) { return { success: false, error: e.message }; }
+      }, []);
+
+      const signOut = useCallback(async () => {
+        await sb.auth.signOut();
+        setUser(null);
+      }, []);
+
+      return { user, authLoading, signUp, signIn, signOut };
+    }
+
+    // ── AuthScreen ────────────────────────────────────────────
+    function AuthScreen() {
+      const [isLogin, setIsLogin] = useState(true);
+      const [email, setEmail]     = useState("");
+      const [password, setPassword] = useState("");
+      const [msg, setMsg]         = useState(null);
+      const [busy, setBusy]       = useState(false);
+      const { signUp, signIn }    = useAuth();
+
+      const handle = async () => {
+        if (!email || !password) return setMsg({ type: "error", text: "أدخل الإيميل وكلمة السر" });
+        setBusy(true); setMsg(null);
+        const result = isLogin ? await signIn(email, password) : await signUp(email, password);
+        setBusy(false);
+        if (!result.success) return setMsg({ type: "error", text: result.error });
+        if (!isLogin) setMsg({ type: "ok", text: "✅ تم التسجيل! تحقق من إيميلك لتفعيل الحساب." });
+      };
+
+      const inp = {
+        width: "100%", background: "rgba(0,0,0,0.3)",
+        border: "1px solid rgba(37,137,201,0.35)", borderRadius: 10,
+        color: "#E5F6FF", fontSize: 15, padding: "12px 16px",
+        outline: "none", fontFamily: "inherit",
+      };
+
+      return (
+        <div style={{
+          minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+          background: "linear-gradient(160deg,#0d1f2d 0%,#1E2C3B 50%,#0a1929 100%)",
+          padding: "20px",
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 420, background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(37,137,201,0.25)", borderRadius: 20,
+            padding: 36, boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div style={{
+                fontSize: 40, fontWeight: 900,
+                background: "linear-gradient(135deg,#E5F6FF 0%,#2589C9 60%,#5ab4e8 100%)",
+                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+              }}>iLAW</div>
+              <div style={{ color: "#5ab4e8", fontSize: 13, marginTop: 6 }}>
+                {isLogin ? "تسجيل الدخول" : "إنشاء حساب جديد"}
+              </div>
+            </div>
+
+            <input style={inp} type="email" placeholder="الإيميل"
+              value={email} onChange={e => setEmail(e.target.value)} />
+            <input style={{ ...inp, marginTop: 12 }} type="password" placeholder="كلمة السر (6 أحرف على الأقل)"
+              value={password} onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handle()} />
+
+            {msg && (
+              <div style={{
+                marginTop: 12, padding: "10px 14px", borderRadius: 8, fontSize: 13,
+                background: msg.type === "error" ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)",
+                color: msg.type === "error" ? "#fca5a5" : "#86efac",
+                border: `1px solid ${msg.type === "error" ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
+              }}>{msg.text}</div>
+            )}
+
+            <button onClick={handle} disabled={busy} style={{
+              marginTop: 18, width: "100%",
+              background: busy ? "rgba(37,137,201,0.3)" : "linear-gradient(135deg,#2589C9,#063E5F)",
+              color: "#E5F6FF", border: "none", borderRadius: 12,
+              padding: "13px 0", fontSize: 15, fontWeight: 700,
+              cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit",
+            }}>
+              {busy ? "جاري..." : isLogin ? "⚖ دخول" : "⚖ تسجيل"}
+            </button>
+
+            <div style={{ textAlign: "center", marginTop: 16, color: "#5ab4e8", fontSize: 13, cursor: "pointer" }}
+              onClick={() => { setIsLogin(!isLogin); setMsg(null); }}>
+              {isLogin ? "مالكش حساب؟ سجّل دلوقتي" : "عندك حساب؟ ادخل"}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── System Prompt ─────────────────────────────────────────
+    const ILAW_MASTER_PROMPT = `أنت محرك ذكاء اصطناعي قانوني متخصص في القانون المصري.
+مهمتك: الإجابة على الأسئلة القانونية بدقة عالية والاستناد إلى نصوص القانون + أحكام النقض.
+========================================
+📌 OUTPUT FORMAT (إلزامي)
+========================================
+الإجابة:
+[إجابة قانونية واضحة ومنظمة]
+المواد:
+[مواد قانونية مفصولة بـ | مثال: م. 172 مدني | طعن 963/58 ق]
+درجة الثقة:
+[عالية / متوسطة / منخفضة]
+ملاحظة:
+[أي توضيح إضافي مهم]
+========================================
+📌 RULES
+========================================
+- استخدم القانون المدني المصري + المرافعات + القوانين الخاصة
+- لو فيه خلاف فقهي أو قضائي وضحه
+- لو السؤال ناقص افترض أقرب سيناريو منطقي
+- لا تخترع مواد قانونية
+- استخدم لغة عربية قانونية واضحة
+- يفضل ذكر أحكام النقض
+التزم بالفورمات حرفياً. أي رد خارج هذا الشكل يعتبر خطأ.`;
+
+    const SUGGESTED_QUESTIONS = [
+      "ما هي مدة تقادم دعوى المسؤولية التقصيرية؟",
+      "ما هي شروط صحة العقد؟",
+      "متى يحق للمشتري طلب فسخ البيع بسبب العيب الخفي؟",
+      "ما أركان المسؤولية التقصيرية؟",
+      "ما حكم الشرط الجزائي في العقود؟",
+    ];
+
+    // ── Parser ────────────────────────────────────────────────
+    const PATTERNS = {
+      answer:     /الإجابة\s*:\s*([\s\S]*?)(?=\n\s*المواد\s*:|$)/,
+      articles:   /المواد\s*:\s*([\s\S]*?)(?=\n\s*درجة\s+الثقة\s*:|$)/,
+      confidence: /درجة\s+الثقة\s*:\s*([\s\S]*?)(?=\n\s*ملاحظة\s*:|$)/,
+      note:       /ملاحظة\s*:\s*([\s\S]*?)$/,
+    };
+
+    function clean(s) { return typeof s === "string" ? s.trim().replace(/\r\n/g,"\n").replace(/\n{3,}/g,"\n\n") : ""; }
+
+    function normalizeConf(raw) {
+      if (!raw) return "غير محدد";
+      if (raw.includes("عالية")||raw.includes("عال")) return "عالية";
+      if (raw.includes("متوسطة")||raw.includes("متوسط")) return "متوسطة";
+      if (raw.includes("منخفضة")||raw.includes("منخفض")) return "منخفضة";
+      return "غير محدد";
+    }
+
+    function parseResponse(rawInput) {
+      try {
+        const t = clean(typeof rawInput === "string" ? rawInput : String(rawInput ?? ""));
+        if (!t) return { answer: "", articles: [], confidence: "غير محدد", note: "", _fallback: true };
+        let answer = "", articles = "", confidence = "غير محدد", note = "";
+        try {
+          answer     = clean(t.match(PATTERNS.answer)?.[1] ?? "");
+          articles   = clean(t.match(PATTERNS.articles)?.[1] ?? "");
+          confidence = normalizeConf(t.match(PATTERNS.confidence)?.[1] ?? "");
+          note       = clean(t.match(PATTERNS.note)?.[1] ?? "");
+        } catch(e) {}
+        const articlesArr = articles ? articles.split("|").map(a=>a.trim()).filter(Boolean) : [];
+        if (!answer) return { answer: t, articles: articlesArr, confidence: "غير محدد", note: "تم عرض الرد بدون تنسيق", _fallback: true };
+        return { answer, articles: articlesArr, confidence, note, _fallback: false };
+      } catch(e) {
+        return { answer: String(rawInput ?? ""), articles: [], confidence: "غير محدد", note: "", _fallback: true };
+      }
+    }
+
+    // ── Storage ───────────────────────────────────────────────
+    const STORAGE_KEY = "ilaw_conversations";
+    function uid() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`; }
+    function storageLoad() { try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; } }
+    function storageSave(s) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch(e) {} }
+
+    // ── Claude API — عبر Netlify Function Proxy ───────────────
+    // API Key موجود فقط على السيرفر في process.env.CLAUDE_API_KEY
+    // المتصفح لا يرى المفتاح نهائياً
+    const PROXY_URL = "/.netlify/functions/chat";
+
+    async function callClaude(messages) {
+      console.log("[iLAW] ▶ إرسال الطلب إلى الـ proxy:", PROXY_URL);
+      console.log("[iLAW]   عدد الرسائل:", messages.length);
+
+      try {
+        const res = await fetch(PROXY_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages,
+            system: ILAW_MASTER_PROMPT,
+            max_tokens: 1500,
+            temperature: 0.2,
+          }),
+        });
+
+        let data;
+        try {
+          data = await res.json();
+        } catch (jsonErr) {
+          console.error("[iLAW] ✖ فشل قراءة رد الـ proxy:", jsonErr);
+          return { success: false, error: `الـ proxy أرجع رد غير صالح (HTTP ${res.status})` };
+        }
+
+        console.log("[iLAW] ◀ رد الـ proxy — status:", res.status, "| data:", data);
+
+        if (!res.ok) {
+          const errMsg = data?.error ?? `HTTP ${res.status}`;
+          console.error("[iLAW] ✖ خطأ من الـ proxy:", errMsg);
+          return { success: false, error: errMsg };
+        }
+
+        const text = data.text ?? "";
+        console.log("[iLAW] ✔ تم استلام الرد — الطول:", text.length, "حرف");
+        return { success: true, data: text };
+
+      } catch (e) {
+        console.error("[iLAW] ✖ خطأ في الاتصال بالـ proxy:", e);
+        if (e instanceof TypeError) {
+          return { success: false, error: "🌐 تعذّر الوصول إلى الخادم — تأكد أن الـ Netlify Function مرفوعة" };
+        }
+        return { success: false, error: `خطأ غير متوقع: ${e.message}` };
+      }
+    }
+
+    // ── Sub-components ────────────────────────────────────────
+    function ConfBadge({ level }) {
+      const cfg = {
+        "عالية":    { color: "#22c55e", bg: "rgba(34,197,94,0.15)",   icon: "●●●" },
+        "متوسطة":   { color: "#f59e0b", bg: "rgba(245,158,11,0.15)",  icon: "●●○" },
+        "منخفضة":   { color: "#ef4444", bg: "rgba(239,68,68,0.15)",   icon: "●○○" },
+        "غير محدد": { color: "#6b7280", bg: "rgba(107,114,128,0.15)", icon: "○○○" },
+      };
+      const c = cfg[level] || cfg["غير محدد"];
+      return <span style={{ background: c.bg, color: c.color, border: `1px solid ${c.color}40`, borderRadius: 20, padding: "3px 14px", fontSize: 13, fontWeight: 700 }}>{c.icon} {level}</span>;
+    }
+
+    function Chip({ text }) {
+      return <span style={{ background: "rgba(37,137,201,0.15)", color: "#5ab4e8", border: "1px solid rgba(37,137,201,0.3)", borderRadius: 8, padding: "4px 12px", fontSize: 13, display: "inline-block", margin: "3px 4px" }}>{text}</span>;
+    }
+
+    function Logo({ size = 48 }) {
+      return (
+        <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+          <ellipse cx="50" cy="42" rx="30" ry="26" fill="#1a3a5c" stroke="#2589C9" strokeWidth="2.5"/>
+          <path d="M50 20 Q62 18 68 28 Q74 38 66 46 Q58 54 50 50" stroke="#2589C9" strokeWidth="2" fill="none"/>
+          <path d="M50 20 Q38 18 32 28 Q26 38 34 46 Q42 54 50 50" stroke="#2589C9" strokeWidth="2" fill="none"/>
+          <circle cx="70" cy="30" r="3" fill="#2589C9"/><circle cx="72" cy="42" r="3" fill="#2589C9"/>
+          <circle cx="30" cy="30" r="3" fill="#2589C9"/><circle cx="28" cy="42" r="3" fill="#2589C9"/>
+          <circle cx="50" cy="44" r="14" fill="#0d2137" stroke="#2589C9" strokeWidth="2.5"/>
+          <line x1="44" y1="44" x2="56" y2="44" stroke="#E5F6FF" strokeWidth="1.5"/>
+          <line x1="50" y1="38" x2="50" y2="44" stroke="#E5F6FF" strokeWidth="1.5"/>
+          <path d="M44 44 l-3 4 l6 0 Z" fill="#E5F6FF"/><path d="M56 44 l-3 4 l6 0 Z" fill="#E5F6FF"/>
+          <circle cx="50" cy="72" r="3" fill="#2589C9"/>
+          <circle cx="40" cy="67" r="2.5" fill="#2589C9"/><circle cx="60" cy="67" r="2.5" fill="#2589C9"/>
+          <line x1="50" y1="68" x2="40" y2="65" stroke="#2589C9" strokeWidth="1.5"/>
+          <line x1="50" y1="68" x2="60" y2="65" stroke="#2589C9" strokeWidth="1.5"/>
+        </svg>
+      );
+    }
+
+    function Typewriter({ text }) {
+      const [d, setD] = useState("");
+      useEffect(() => {
+        setD(""); let i = 0;
+        const iv = setInterval(() => { setD(text.slice(0, i)); i++; if (i > text.length) clearInterval(iv); }, 8);
+        return () => clearInterval(iv);
+      }, [text]);
+      return <span>{d}</span>;
+    }
+
+    function MsgCard({ msg, isLatest, resultRef }) {
+      return (
+        <div ref={isLatest ? resultRef : null} style={{
+          background: "rgba(255,255,255,0.03)",
+          border: msg.isError ? "1px solid rgba(239,68,68,0.35)" : "1px solid rgba(37,137,201,0.3)",
+          borderRadius: "14px 14px 14px 4px", overflow: "hidden", maxWidth: "85%",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+          animation: isLatest ? "slideUp 0.4s ease-out" : "none",
+        }}>
+          <div style={{ background: "linear-gradient(135deg,rgba(37,137,201,0.15),rgba(6,62,95,0.2))", borderBottom: "1px solid rgba(37,137,201,0.2)", padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Logo size={22} />
+              <span style={{ color: "#5ab4e8", fontWeight: 700, fontSize: 14 }}>رأي iLAW القانوني</span>
+            </div>
+            {msg.parsed?.confidence && <ConfBadge level={msg.parsed.confidence} />}
+          </div>
+          <div style={{ padding: "20px 24px" }}>
+            {msg.parsed?._fallback && !msg.isError && (
+              <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8, padding: "8px 12px", color: "#f59e0b", fontSize: 12, marginBottom: 16 }}>
+                ⚠ الرد لم يلتزم بالفورمات — يُعرض كما هو
+              </div>
+            )}
+            {msg.parsed?.answer && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ color: "#2589C9", fontSize: 11, fontWeight: 700, letterSpacing: 2, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 20, height: 2, background: "#2589C9", display: "inline-block" }} />الإجابة القانونية
+                </div>
+                <div style={{ color: "#d4e8f5", fontSize: 15, lineHeight: 2.1, borderRight: "3px solid #2589C9", paddingRight: 16 }}>
+                  {isLatest ? <Typewriter text={msg.parsed.answer} /> : msg.parsed.answer}
+                </div>
+              </div>
+            )}
+            {msg.parsed?.articles?.length > 0 && (
+              <div style={{ background: "rgba(37,137,201,0.06)", border: "1px solid rgba(37,137,201,0.15)", borderRadius: 12, padding: "14px 18px", marginBottom: 16 }}>
+                <div style={{ color: "#2589C9", fontSize: 11, fontWeight: 700, letterSpacing: 2, marginBottom: 10 }}>⚖ المواد القانونية والأحكام</div>
+                {msg.parsed.articles.map((a, i) => <Chip key={i} text={a} />)}
+              </div>
+            )}
+            {msg.parsed?.note && (
+              <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 10, padding: "12px 16px", display: "flex", gap: 10 }}>
+                <span style={{ fontSize: 16 }}>💡</span>
+                <div>
+                  <div style={{ color: "#f59e0b", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>ملاحظة مهمة</div>
+                  <div style={{ color: "#c4a35a", fontSize: 13, lineHeight: 1.8 }}>{msg.parsed.note}</div>
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{ borderTop: "1px solid rgba(37,137,201,0.1)", padding: "10px 20px", color: "#3d5e73", fontSize: 11, textAlign: "center" }}>
+            هذا الرأي للاستئناس فقط ولا يغني عن استشارة محامٍ مرخص · iLAW © 2025
+          </div>
+        </div>
+      );
+    }
+
+    // ── Main App ──────────────────────────────────────────────
+    function ILawApp({ user, onSignOut }) {
+      const [question, setQuestion]       = useState("");
+      const [loading, setLoading]         = useState(false);
+      const [error, setError]             = useState(null);
+      const [conversations, setConversations] = useState(() => storageLoad());
+      const [activeConvId, setActiveConvId]   = useState(null);
+      const textareaRef = useRef(null);
+      const resultRef   = useRef(null);
+
+      const activeMessages = activeConvId ? (conversations[activeConvId]?.messages ?? []) : [];
+      const latestAssistantId = [...activeMessages].reverse().find(m => m.role === "assistant")?.id;
+      const convList = Object.entries(conversations).map(([id, c]) => ({ id, ...c })).sort((a, b) => b.updatedAt - a.updatedAt);
+
+      useEffect(() => { storageSave(conversations); }, [conversations]);
+
+      const addMessage = useCallback((convId, message) => {
+        setConversations(prev => {
+          const conv = prev[convId];
+          if (!conv) return prev;
+          return { ...prev, [convId]: { ...conv, messages: [...conv.messages, message], updatedAt: Date.now() } };
+        });
+      }, []);
+
+      const buildApiMessages = useCallback((convId, newText) => {
+        const existing = conversations[convId]?.messages ?? [];
+        const history = existing.filter(m => !m.isError && typeof m.raw === "string" && m.raw.trim()).map(m => ({ role: m.role, content: m.raw }));
+        return [...history, { role: "user", content: newText }];
+      }, [conversations]);
+
+      const ask = useCallback(async (overrideText) => {
+        const trimmed = (overrideText || question).trim();
+        if (!trimmed || loading) return;
+        setLoading(true); setError(null);
+
+        console.log("[iLAW] ▶ ask() — السؤال:", trimmed.slice(0, 80));
+        console.log("[iLAW]   حالة المستخدم:", user?.email ?? "غير مسجّل");
+
+        let convId = activeConvId;
+        if (!convId) {
+          const newId = uid(); const now = Date.now();
+          convId = newId; setActiveConvId(newId);
+          setConversations(prev => ({ ...prev, [newId]: { title: trimmed.slice(0, 60), messages: [], createdAt: now, updatedAt: now } }));
+        }
+
+        const apiMessages = buildApiMessages(convId, trimmed);
+        addMessage(convId, { id: uid(), role: "user", raw: trimmed, parsed: null, timestamp: Date.now() });
+        setQuestion("");
+
+        const result = await callClaude(apiMessages);
+
+        if (!result.success) {
+          setError(result.error);
+          addMessage(convId, { id: uid(), role: "assistant", raw: "", isError: true, timestamp: Date.now(), parsed: { answer: "لم يتم استلام رد. يرجى المحاولة مرة أخرى.", articles: [], confidence: "غير محدد", note: result.error } });
+        } else {
+          let parsed = parseResponse(result.data);
+          if (!parsed?.answer) parsed = { answer: result.data || "تعذّر عرض الرد.", articles: [], confidence: "غير محدد", note: "fallback", _fallback: true };
+          addMessage(convId, { id: uid(), role: "assistant", raw: result.data, parsed, timestamp: Date.now() });
+          setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+        }
+        setLoading(false);
+      }, [question, loading, activeConvId, addMessage, buildApiMessages]);
+
+      const startNew = () => { setActiveConvId(null); setError(null); setQuestion(""); setTimeout(() => textareaRef.current?.focus(), 50); };
+
+      return (
+        <div dir="rtl" style={{ minHeight: "100vh", background: "linear-gradient(160deg,#0d1f2d 0%,#1E2C3B 50%,#0a1929 100%)", fontFamily: "'Noto Naskh Arabic',Georgia,serif", color: "#c8dce8", position: "relative" }}>
+          <div style={{ position: "fixed", inset: 0, pointerEvents: "none", backgroundImage: "radial-gradient(circle at 20% 20%,rgba(37,137,201,0.05) 0%,transparent 50%),radial-gradient(circle at 80% 80%,rgba(6,62,95,0.1) 0%,transparent 50%)" }} />
+
+          <div style={{ maxWidth: 860, margin: "0 auto", padding: "0 20px 80px", position: "relative" }}>
+
+            {/* User Bar */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid rgba(37,137,201,0.15)", marginBottom: 8 }}>
+              <span style={{ color: "#5ab4e8", fontSize: 13 }}>👤 {user?.email}</span>
+              <button onClick={onSignOut} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#fca5a5", borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>خروج</button>
+            </div>
+
+            {/* Header */}
+            <header style={{ textAlign: "center", padding: "32px 0 28px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 12 }}>
+                <Logo size={64} />
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 42, fontWeight: 900, letterSpacing: -1, background: "linear-gradient(135deg,#E5F6FF 0%,#2589C9 60%,#5ab4e8 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontFamily: "Georgia,serif", lineHeight: 1 }}>iLAW</div>
+                  <div style={{ color: "#5ab4e8", fontSize: 13, letterSpacing: 3, textTransform: "uppercase", marginTop: 2 }}>المستشار القانوني الذكي</div>
+                </div>
+              </div>
+              <p style={{ color: "#7aa8c4", fontSize: 15, maxWidth: 480, margin: "0 auto", lineHeight: 1.8, borderTop: "1px solid rgba(37,137,201,0.2)", paddingTop: 16 }}>
+                محرك ذكاء اصطناعي متخصص في القانون المصري · القانون المدني · أحكام النقض · المرافعات
+              </p>
+            </header>
+
+            {/* Tabs */}
+            {convList.length > 0 && (
+              <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8, marginBottom: 20 }}>
+                <button onClick={startNew} style={{ flexShrink: 0, background: "rgba(37,137,201,0.12)", border: "1px dashed rgba(37,137,201,0.35)", borderRadius: 20, color: "#5ab4e8", padding: "6px 16px", fontSize: 13, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>+ جديد</button>
+                {convList.map(conv => (
+                  <button key={conv.id} onClick={() => setActiveConvId(conv.id)} style={{ flexShrink: 0, background: conv.id === activeConvId ? "rgba(37,137,201,0.25)" : "rgba(255,255,255,0.03)", border: conv.id === activeConvId ? "1px solid rgba(37,137,201,0.6)" : "1px solid rgba(37,137,201,0.15)", borderRadius: 20, color: conv.id === activeConvId ? "#E5F6FF" : "#7aa8c4", padding: "6px 16px", fontSize: 13, cursor: "pointer", fontFamily: "inherit", maxWidth: 180, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{conv.title}</button>
+                ))}
+              </div>
+            )}
+
+            {/* Messages */}
+            {activeMessages.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                {activeMessages.map(msg => (
+                  <div key={msg.id} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-start" : "flex-end", marginBottom: 14 }}>
+                    {msg.role === "user" ? (
+                      <div style={{ background: "rgba(37,137,201,0.08)", border: "1px solid rgba(37,137,201,0.2)", borderRadius: "14px 14px 4px 14px", padding: "12px 18px", maxWidth: "75%", color: "#9cc4dc", fontSize: 15, lineHeight: 1.8 }}>
+                        <span style={{ color: "#4d7a99", fontSize: 11, display: "block", marginBottom: 4 }}>سؤالك</span>{msg.raw}
+                      </div>
+                    ) : (
+                      <MsgCard msg={msg} isLatest={msg.id === latestAssistantId} resultRef={resultRef} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Loading */}
+            {loading && (
+              <div style={{ textAlign: "center", padding: "48px 0", color: "#5ab4e8" }}>
+                <div style={{ fontSize: 36, marginBottom: 16, animation: "float 2s ease-in-out infinite" }}>⚖️</div>
+                <div style={{ fontSize: 15, color: "#7aa8c4" }}>يراجع iLAW المصادر القانونية...</div>
+                <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: 16 }}>
+                  {[0,1,2].map(i => <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#2589C9", animation: `pulse 1.2s ease-in-out ${i*0.2}s infinite` }} />)}
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {error && <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: "16px 20px", color: "#fca5a5", marginBottom: 24 }}>⚠ {error}</div>}
+
+            {/* Input */}
+            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(37,137,201,0.25)", borderRadius: 20, padding: 28, backdropFilter: "blur(12px)", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", marginBottom: 28 }}>
+              <label style={{ display: "block", color: "#7aa8c4", fontSize: 13, marginBottom: 10, letterSpacing: 1 }}>✦ اطرح سؤالك القانوني</label>
+              <textarea ref={textareaRef} value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => (e.ctrlKey||e.metaKey) && e.key === "Enter" && ask()} placeholder="مثال: ما هي مدة تقادم دعوى المسؤولية التقصيرية؟" rows={3} style={{ width: "100%", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(37,137,201,0.3)", borderRadius: 12, color: "#E5F6FF", fontSize: 16, padding: "16px 18px", resize: "none", outline: "none", fontFamily: "inherit", lineHeight: 1.8 }} onFocus={e => e.target.style.borderColor="#2589C9"} onBlur={e => e.target.style.borderColor="rgba(37,137,201,0.3)"} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
+                <span style={{ color: "#4d7a99", fontSize: 12 }}>Ctrl + Enter للإرسال</span>
+                <button onClick={() => ask()} disabled={loading || !question.trim()} style={{ background: loading ? "rgba(37,137,201,0.3)" : "linear-gradient(135deg,#2589C9 0%,#063E5F 100%)", color: "#E5F6FF", border: "none", borderRadius: 12, padding: "12px 32px", fontSize: 15, fontWeight: 700, fontFamily: "inherit", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 8, boxShadow: loading ? "none" : "0 4px 20px rgba(37,137,201,0.4)" }}>
+                  {loading ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⚖</span>جاري البحث...</> : <>⚖ استشر iLAW</>}
+                </button>
+              </div>
+            </div>
+
+            {/* Suggested Questions */}
+            {activeMessages.length === 0 && !loading && (
+              <div style={{ marginBottom: 32 }}>
+                <div style={{ color: "#4d7a99", fontSize: 12, marginBottom: 12, letterSpacing: 1 }}>أسئلة مقترحة</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {SUGGESTED_QUESTIONS.map((q, i) => (
+                    <button key={i} onClick={() => { setQuestion(q); ask(q); }} style={{ background: "rgba(37,137,201,0.08)", border: "1px solid rgba(37,137,201,0.2)", borderRadius: 24, color: "#7aa8c4", padding: "8px 16px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+                      onMouseEnter={e => { e.target.style.background="rgba(37,137,201,0.18)"; e.target.style.color="#E5F6FF"; }}
+                      onMouseLeave={e => { e.target.style.background="rgba(37,137,201,0.08)"; e.target.style.color="#7aa8c4"; }}
+                    >{q}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Root ──────────────────────────────────────────────────
+    function App() {
+      const { user, authLoading, signOut } = useAuth();
+
+      if (authLoading) return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0d1f2d", color: "#5ab4e8", fontSize: 18, fontFamily: "'Noto Naskh Arabic',serif" }}>
+          جاري التحميل...
+        </div>
+      );
+
+      // الشات يعمل سواء مع أو بدون حساب
+      if (!user) return <AuthScreen />;
+      return <ILawApp user={user} onSignOut={signOut} />;
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
